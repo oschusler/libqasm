@@ -2,7 +2,7 @@ import os
 import subprocess
 from shutil import copyfile
 from sys import platform
-from typing import Dict
+from typing import Dict, List
 
 from setuptools import setup
 
@@ -10,6 +10,7 @@ root_dir = os.path.dirname(os.path.realpath(__file__))
 src_dir = os.path.join(root_dir, 'src')
 build_dir = os.path.join(src_dir, "cbuild")
 libqasm_dir = os.path.join(src_dir, "libQasm")
+test_mode = os.getenv('RUN_TESTS', 'false').lower() == 'true'
 
 platforms = {
     'unix': {
@@ -66,9 +67,12 @@ def build_libqasm_library(make_command: str, cmake_options: str) -> None:
     """
     os.chdir(build_dir)
     execute_process(f'git submodule update --init --recursive')
-    execute_process(f'cmake {cmake_options} {os.path.join("..", "library")}')
-    execute_process(f'{make_command} all')
-    execute_process(f'{make_command} test')
+
+    cmake_test_flags = '' if test_mode else '-Wno-dev'
+    execute_process(f'cmake {cmake_options} {os.path.join("..", "library")} {cmake_test_flags}')
+    execute_process(f'{make_command}')
+    if test_mode:
+        execute_process(f'{make_command} test')
     os.chdir(root_dir)
 
 
@@ -107,6 +111,22 @@ def copy_file(src_dir: str, dest_dir: str, file_name: str) -> None:
     )
 
 
+def get_package_data_list(*binaries) -> List[str]:
+    """Build the list of non-python files that should be included in the build.
+
+    Args:
+        binaries: non-python files that should be included in the build.
+
+    Return:
+        list of file paths for the non-python files.
+    """
+    tmp_libqasm_package = []
+
+    for package in binaries:
+        tmp_libqasm_package.append(os.path.join(libqasm_dir, package))
+    return tmp_libqasm_package
+
+
 def build_libqasm():
     """Wrapper that calls the differnt components to build libQasm and place the necessary binaries"""
     sys_platform = determine_platform()
@@ -121,10 +141,10 @@ def build_libqasm():
     copy_file(build_dir, libqasm_dir, "libQasm.py")
     copy_file(build_dir, libqasm_dir, sys_platform['liblexgram'])
 
-    return os.path.join(libqasm_dir, clibname), os.path.join(libqasm_dir, sys_platform['liblexgram'])
+    return get_package_data_list(clibname, sys_platform['liblexgram'])
 
 
-clib, liblexgram = build_libqasm()
+package_data_list = build_libqasm()
 
 setup(name='libQasm',
       description='libQasm Python Package',
@@ -135,7 +155,7 @@ setup(name='libQasm',
       python_requires='>=3.6',
       packages=['libQasm'],
       package_dir={'': 'src'},
-      package_data={'libQasm': [clib, liblexgram]},
+      package_data={'libQasm': package_data_list},
       classifiers=[
           'Development Status :: 3 - Alpha',
           'Programming Language :: Python :: 3',
